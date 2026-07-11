@@ -1,3 +1,5 @@
 node_modules/
 .env
-.server.js
+.dep-command.mdnode_modules/
+backend/server.js
+dep-command.js
