@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Infrastructura para CanchaConnect - App de Torneos de Fútbol
+
+Resources:
+  # ---------------------------------------------------------
+  # 1. DynamoDB Table (Single-Table Design)
+  # ---------------------------------------------------------
+  CanchaConnectTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CanchaConnectData
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        # --- NEW ATTRIBUTES FOR GSI ---
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      # --- NEW GLOBAL SECONDARY INDEX ---
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL # Copies all data to the index for fast reads
+
+  # ---------------------------------------------------------
+  # 2. Shared IAM Role for Lambdas
+  # ---------------------------------------------------------
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt CanchaConnectTable.Arn
+
+  # ---------------------------------------------------------
+  # 3. Main API Lambda Function (The Domain Router)
+  # ---------------------------------------------------------
+  ApiLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: CanchaConnect-processor-lambda
+      Runtime: nodejs24.x
+      # Points to a central index file that will route the requests
+      Handler: src/index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref CanchaConnectTable
+      Code:
+        S3Bucket: "canchaconnect-deployments-dev" 
+        S3Key: backend.zip # Ensure your code is zipped and uploaded with this exact name
+
+  # ---------------------------------------------------------
+  # 4. API Gateway (HTTP API V2)
+  # ---------------------------------------------------------
+  CanchaConnectHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: CanchaConnectHTTPAPI
+      ProtocolType: HTTP
+
+  # ---------------------------------------------------------
+  # 5. Integration & Catch-All Route
+  # ---------------------------------------------------------
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ApiLambdaFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  # The $default route acts as a catch-all for ANY method and ANY path
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      RouteKey: "$default"
+      Target: !Join [ "/", [ "integrations", !Ref ApiIntegration ] ]
+
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ApiLambdaFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CanchaConnectHttpApi}/*/*"
+
+Outputs:
+  ApiEndpoint:
+    Description: URL de la API Gateway
+    Value: !Sub https://${CanchaConnectHttpApi}.execute-api.${AWS::Region}.amazonaws.com/
