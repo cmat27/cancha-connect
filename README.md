@@ -77,19 +77,3 @@ aws cloudformation deploy \
  --capabilities CAPABILITY_IAM
 
 Once completed, the CLI will output the live ApiEndpoint URL which you can use to interact with your API.
-
-\*\*NOTES
-##Development api
-https://9g2g4hc3bc.execute-api.us-east-1.amazonaws.com/
-
-##Run the following command to deploy the stack:
-aws cloudformation deploy \
- --template-file template.yaml \
- --stack-name CanchaConnectStack \
- --capabilities CAPABILITY_IAM
-
-##Once the deployment finishes, run this command to get your live API URL:
-aws cloudformation describe-stacks \
- --stack-name CanchaConnectStack \
- --query "Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue" \
- --output text

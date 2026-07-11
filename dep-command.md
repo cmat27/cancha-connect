@@ -3,7 +3,7 @@ cd to backend
 zip code:
 
 zip code excluding files
-zip -r backend.zip . -x "backend/server.js" "node_modules/_" ".git/_"
+zip -r backend.zip . -x "backend/server.js" "node*modules/*" ".git/\_"
 
 upload to s3
 
@@ -19,3 +19,9 @@ aws lambda update-function-code \
 Repo
 
 git remote add origin https://git-codecommit.us-east-1.amazonaws.com/v1/repos/canchaconnect-app
+
+git branch -M main
+git remote add origin https://github.com/cmat27/cancha-connect.git
+https://github.com/cmat27/cancha-connect/s
+
+git remote set-url origin https://github.com/cmat27/cancha-connect.git
