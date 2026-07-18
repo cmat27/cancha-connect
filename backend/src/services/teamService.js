@@ -5,6 +5,7 @@ import {
   getAllTeams,
   addPlayerToTeam,
   getPlayersOnTeam,
+  getTournamentsForTeam,
 } from '../data/teamRepository.js';
 
 /**
@@ -145,5 +146,11 @@ export const getPlayersOnTeamService = async (teamId) => {
   if (teamId !== undefined) {
     const resp = await getPlayersOnTeam(teamId);
     return resp;
+  }
+};
+
+export const getTeamTournamentsService = async (teamId) => {
+  if (teamId !== undefined) {
+    const resp = await getTournamentsForTeam(teamId);
   }
 };

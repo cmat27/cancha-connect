@@ -4,6 +4,7 @@ import {
   getAllTeamsService,
   addPlayerToTeamService,
   getPlayersOnTeamService,
+  getTeamTournamentsService,
 } from '../services/teamService.js';
 import { formatResponse, formatError } from '../utils/responseFormatter.js';
 
@@ -26,7 +27,7 @@ const teamRoutesRegistry = [
   },
   {
     method: 'POST',
-    regex: /^\/teams\/roster\/([^\/]+)\/players\/?$/,
+    regex: /^\/teams\/rosterAdd\/([^\/]+)\/players\/?$/,
     handler: async (event, match) =>
       await handlesAddPlayerToTeam(event, match[1]),
   },
@@ -34,6 +35,11 @@ const teamRoutesRegistry = [
     method: 'GET',
     regex: /^\/teams\/rosterInfo\/([^\/]+)\/players\/?$/,
     handler: async (event, match) => await handlesGetTeamRoster(match[1]),
+  },
+  {
+    method: 'GET',
+    regex: /^\/teams\/tournamentsInfo\/([^\/]+)\/?$/,
+    handler: async (event, match) => await handlesGetTeamtournaments(match[1]),
   },
 ];
 
@@ -136,4 +142,9 @@ const handlesAddPlayerToTeam = async (event, teamId) => {
 const handlesGetTeamRoster = async (teamId) => {
   const teamRoster = await getPlayersOnTeamService(teamId);
   return formatResponse(200, teamRoster);
+};
+// get tournaments for team s
+const handlesGetTeamtournaments = async (teamId) => {
+  const teamTournaments = await getTeamTournamentsService(teamId);
+  return formatResponse(200, teamTournaments);
 };
