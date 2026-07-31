@@ -1,41 +1,114 @@
-name: Deploy CanchaConnect to AWS Lambda
+name: CI/CD Pipeline - CanchaConnect Full Stack Deployment
 
 on:
   push:
     branches:
       - main
+      - re-structure
 
 jobs:
-  deploy:
+  build-test-deploy:
+    name: Build, Test & Deploy to AWS
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v5
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ vars.REGION }} # Replace with your region if different
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
 
-    # Packages your backend code while excluding server.js and node_modules
-    - name: Package Code
-      run: |
-        zip -r ../../backend.zip . -x "server.js" "node_modules/*"
-      # zip -r backend.zip . -x "backend/server.js" "node_modules/*" ".git/*" ".github/*"
+      # ---------------------------------------------------------
+      # 1. Backend Integration & Automated Testing
+      # ---------------------------------------------------------
+      - name: Install Backend Dependencies & Run Tests
+        working-directory: backend
+        run: |
+          npm ci
+          npm test
 
-    # Uploads package to your existing S3 deployment bucket
-    - name: Upload to S3
-      run: |
-        aws s3 cp backend.zip  s3://${{ secrets.S3_BUCKET_NAME }}/backend.zip
+      - name: Package Backend Lambda Code
+        working-directory: backend
+        run: |
+          zip -r ../backend.zip . -x "server.js" "test/*" "*.git*"
 
-    # Triggers Lambda update directly from S3
-    - name: Update Lambda Function
-      run: |
-        aws lambda update-function-code \
-          --function-name ${{ vars.LAMBDA_FUNCTION_NAME }} \
-          --s3-bucket ${{ secrets.S3_BUCKET_NAME }} \
-          --s3-key backend.zip \
-          --publish
+      # ---------------------------------------------------------
+      # 2. Configure AWS Credentials
+      # ---------------------------------------------------------
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      # ---------------------------------------------------------
+      # 3. Upload Deployment Artifact to S3
+      # ---------------------------------------------------------
+      - name: Upload backend.zip to S3
+        run: |
+          aws s3 cp backend.zip s3://${{ secrets.DEPLOYMENT_BUCKET || 'canchaconnect-deployments-dev' }}/backend.zip
+
+      # ---------------------------------------------------------
+      # 4. Deploy Infrastructure via CloudFormation
+      # ---------------------------------------------------------
+      - name: Deploy CloudFormation Stack
+        run: |
+          aws cloudformation deploy \
+            --template-file infrastructure/template.yaml \
+            --stack-name CanchaConnectStack-${{ vars.ENVIRONMENT || 'dev' }} \
+            --parameter-overrides \
+                Environment=${{ vars.ENVIRONMENT || 'dev' }} \
+                DeploymentBucket=${{ secrets.DEPLOYMENT_BUCKET || 'canchaconnect-deployments-dev' }} \
+                AllowedOrigin="${{ vars.ALLOWED_ORIGIN || '*' }}" \
+            --capabilities CAPABILITY_IAM
+
+      # ---------------------------------------------------------
+      # 5. Fetch Stack Outputs (UI Bucket & CloudFront ID)
+      # ---------------------------------------------------------
+      - name: Get CloudFormation Stack Outputs
+        id: cfn-outputs
+        run: |
+          STACK_NAME="CanchaConnectStack-${{ vars.ENVIRONMENT || 'dev' }}"
+          
+          UI_BUCKET=$(aws cloudformation describe-stacks \
+            --stack-name $STACK_NAME \
+            --query "Stacks[0].Outputs[?OutputKey=='UIBucketName'].OutputValue" \
+            --output text)
+            
+          DISTRIBUTION_ID=$(aws cloudformation describe-stacks \
+            --stack-name $STACK_NAME \
+            --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomainName'].OutputValue" \
+            --output text)
+            
+          echo "UI_BUCKET=$UI_BUCKET" >> $GITHUB_OUTPUT
+          echo "DISTRIBUTION_ID=$DISTRIBUTION_ID" >> $GITHUB_OUTPUT
+
+      # ---------------------------------------------------------
+      # 6. Build & Deploy Angular UI to S3 + CloudFront Invalidation
+      # ---------------------------------------------------------
+      - name: Install Frontend Dependencies & Build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build -- --configuration production
+
+      - name: Sync UI to S3 Bucket
+        run: |
+          aws s3 sync frontend/dist/canchaconnect s3://${{ steps.cfn-outputs.outputs.UI_BUCKET }}/ --delete
+
+      - name: Invalidate CloudFront Cache
+        run: |
+          DIST_ID=$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?DefaultRootObject=='index.html'].Id" \
+            --output text | head -n 1)
+          if [ -n "$DIST_ID" ]; then
+            aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"
+          fi
+
