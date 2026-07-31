@@ -1,74 +1,231 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Infrastructura para CanchaConnect - App de Torneos de Fútbol
+Description: Infrastructura segura para CanchaConnect - App de Torneos de Fútbol
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment name
+
+  DeploymentBucket:
+    Type: String
+    Default: canchaconnect-deployments-dev
+    Description: S3 Bucket containing the Lambda deployment package backend.zip
+
+  AllowedOrigin:
+    Type: String
+    Default: '*'
+    Description: Allowed origin domain for API CORS configuration
+
 Resources:
   CanchaConnectTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: CanchaConnectData
+      TableName:
+        Fn::Sub: CanchaConnectData-${Environment}
       BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
       AttributeDefinitions:
-      - AttributeName: PK
-        AttributeType: S
-      - AttributeName: SK
-        AttributeType: S
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
       KeySchema:
-      - AttributeName: PK
-        KeyType: HASH
-      - AttributeName: SK
-        KeyType: RANGE
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName:
+        Fn::Sub: CanchaConnectUserPool-${Environment}
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName:
+        Fn::Sub: CanchaConnectWebClient-${Environment}
+      UserPoolId:
+        Ref: UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+      AllowedOAuthFlows:
+        - code
+        - implicit
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - http://localhost:4200
+        - https://localhost:4200
+      LogoutURLs:
+        - http://localhost:4200
+        - https://localhost:4200
+
+  OrganizersGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Organizers
+      Description: Tournament Organizers and Referee Managers
+      UserPoolId:
+        Ref: UserPool
+
+  CoachesGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Coaches
+      Description: Team Coaches and Managers
+      UserPoolId:
+        Ref: UserPool
+
+  PlayersGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Players
+      Description: Registered Football Players
+      UserPoolId:
+        Ref: UserPool
+
+  AdminsGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Admins
+      Description: System Administrators
+      UserPoolId:
+        Ref: UserPool
+
+
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Effect: Allow
-          Principal:
-            Service: lambda.amazonaws.com
-          Action: sts:AssumeRole
-      ManagedPolicyArns:
-      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-      - PolicyName: DynamoDBAccess
-        PolicyDocument:
-          Version: '2012-10-17'
-          Statement:
           - Effect: Allow
-            Action:
-            - dynamodb:PutItem
-            - dynamodb:GetItem
-            - dynamodb:Scan
-            - dynamodb:Query
-            - dynamodb:UpdateItem
-            - dynamodb:DeleteItem
-            Resource:
-              Fn::GetAtt:
-              - CanchaConnectTable
-              - Arn
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource:
+                  - Fn::GetAtt: [CanchaConnectTable, Arn]
+                  - Fn::Sub: "${CanchaConnectTable.Arn}/index/*"
+
   ApiLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: CanchaConnect-ApiGatewayHandler
+      FunctionName:
+        Fn::Sub: CanchaConnect-processor-lambda-${Environment}
       Runtime: nodejs24.x
       Handler: src/index.handler
       Role:
-        Fn::GetAtt:
-        - LambdaExecutionRole
-        - Arn
+        Fn::GetAtt: [LambdaExecutionRole, Arn]
       MemorySize: 256
       Timeout: 10
       Environment:
         Variables:
           TABLE_NAME:
             Ref: CanchaConnectTable
+          ALLOWED_ORIGIN:
+            Ref: AllowedOrigin
+          USER_POOL_ID:
+            Ref: UserPool
       Code:
-        S3Bucket: ''
-        S3Key: ''
+        S3Bucket:
+          Ref: DeploymentBucket
+        S3Key: backend.zip
+
   CanchaConnectHttpApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: CanchaConnectHTTPAPI
+      Name:
+        Fn::Sub: CanchaConnectHTTPAPI-${Environment}
       ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - Ref: AllowedOrigin
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Amz-Date
+          - X-Api-Key
+          - X-Amz-Security-Token
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        MaxAge: 3600
+
+  ApiAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId:
+        Ref: CanchaConnectHttpApi
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      Name: CognitoJWTAuthorizer
+      JwtConfiguration:
+        Audience:
+          - Ref: UserPoolClient
+        Issuer:
+          Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+
   ApiIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
@@ -76,21 +233,116 @@ Resources:
         Ref: CanchaConnectHttpApi
       IntegrationType: AWS_PROXY
       IntegrationUri:
-        Fn::GetAtt:
-        - ApiLambdaFunction
-        - Arn
+        Fn::GetAtt: [ApiLambdaFunction, Arn]
       PayloadFormatVersion: '2.0'
+
   DefaultRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId:
         Ref: CanchaConnectHttpApi
-      RouteKey: $default
+      RouteKey: "$default"
+      AuthorizationType: JWT
+      AuthorizerId:
+        Ref: ApiAuthorizer
       Target:
         Fn::Join:
-        - /
-        - - integrations
-          - Ref: ApiIntegration
+          - /
+          - - integrations
+            - Ref: ApiIntegration
+
+  HealthCheckRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: CanchaConnectHttpApi
+      RouteKey: "GET /health"
+      AuthorizationType: NONE
+      Target:
+        Fn::Join:
+          - /
+          - - integrations
+            - Ref: ApiIntegration
+
+  GetTeamsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: CanchaConnectHttpApi
+      RouteKey: "GET /teams"
+      AuthorizationType: NONE
+      Target:
+        Fn::Join:
+          - /
+          - - integrations
+            - Ref: ApiIntegration
+
+  GetTeamsProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: CanchaConnectHttpApi
+      RouteKey: "GET /teams/{proxy+}"
+      AuthorizationType: NONE
+      Target:
+        Fn::Join:
+          - /
+          - - integrations
+            - Ref: ApiIntegration
+
+  GetPlayersRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: CanchaConnectHttpApi
+      RouteKey: "GET /players"
+      AuthorizationType: NONE
+      Target:
+        Fn::Join:
+          - /
+          - - integrations
+            - Ref: ApiIntegration
+
+  GetPlayersProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: CanchaConnectHttpApi
+      RouteKey: "GET /players/{proxy+}"
+      AuthorizationType: NONE
+      Target:
+        Fn::Join:
+          - /
+          - - integrations
+            - Ref: ApiIntegration
+
+  GetTournamentsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: CanchaConnectHttpApi
+      RouteKey: "GET /tournaments"
+      AuthorizationType: NONE
+      Target:
+        Fn::Join:
+          - /
+          - - integrations
+            - Ref: ApiIntegration
+
+  GetTournamentsProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId:
+        Ref: CanchaConnectHttpApi
+      RouteKey: "GET /tournaments/{proxy+}"
+      AuthorizationType: NONE
+      Target:
+        Fn::Join:
+          - /
+          - - integrations
+            - Ref: ApiIntegration
+
+
   ApiGatewayInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -100,8 +352,111 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn:
         Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CanchaConnectHttpApi}/*/*
+
+  UIBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: "canchaconnect-ui-${Environment}-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  UIBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: UIBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Side: AllowCloudFrontServicePrincipalReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource:
+              Fn::Sub: "${UIBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn:
+                  Fn::Sub: "arn:aws:cloudfront::${AWS::AccountId}:distribution/${UIDistribution}"
+
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name:
+          Fn::Sub: "CanchaConnectOAC-${Environment}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  UIDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment:
+          Fn::Sub: "CDN Distribution for CanchaConnect UI (${Environment})"
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3UIOrigin
+            DomainName:
+              Fn::GetAtt: [UIBucket, RegionalDomainName]
+            OriginAccessControlId:
+              Fn::GetAtt: [CloudFrontOAC, Id]
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: S3UIOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
 Outputs:
   ApiEndpoint:
-    Description: URL de la API Gateway
+    Description: URL de la API Gateway (HTTP API v2)
     Value:
       Fn::Sub: https://${CanchaConnectHttpApi}.execute-api.${AWS::Region}.amazonaws.com/
+
+  UserPoolId:
+    Description: Amazon Cognito User Pool ID
+    Value:
+      Ref: UserPool
+
+  UserPoolClientId:
+    Description: Amazon Cognito App Client ID
+    Value:
+      Ref: UserPoolClient
+
+  CognitoIssuerUrl:
+    Description: Cognito JWT Token Issuer URL
+    Value:
+      Fn::Sub: https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+
+  CloudFrontDomainName:
+    Description: CloudFront CDN Distribution Domain Name (Frontend Domain)
+    Value:
+      Fn::GetAtt: [UIDistribution, DomainName]
+
+  CloudFrontURL:
+    Description: CloudFront HTTPS URL for UI Access
+    Value:
+      Fn::Sub: https://${UIDistribution.DomainName}
+
+  UIBucketName:
+    Description: Private S3 Bucket for UI Static Web Hosting
+    Value:
+      Ref: UIBucket

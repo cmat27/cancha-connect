@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { z } from 'zod';
 import {
   insertTeam,
   getTeamInfo,
@@ -8,11 +9,6 @@ import {
   getTournamentsForTeam,
 } from '../data/teamRepository.js';
 
-/**
- * Custom Error class for business logic violations.
- * This ensures our Lambda handler correctly identifies it as a 400 Bad Request
- * instead of a 500 Internal Server Error.
- */
 export class ValidationError extends Error {
   constructor(message) {
     super(message);
@@ -20,137 +16,110 @@ export class ValidationError extends Error {
   }
 }
 
-/**
- * Validates business rules and orchestrates the creation of a team.
- * @param {Object} payload - The parsed JSON data from the HTTP request body
- * @returns {Object} The newly created team object
- */
+const createTeamSchema = z.object({
+  name: z.string({ message: 'Team name is required.' })
+    .trim()
+    .min(1, 'Team name cannot be empty.')
+    .max(50, 'Team name cannot exceed 50 characters.'),
+  coach: z.string({ message: 'Coach name is required.' })
+    .trim()
+    .min(1, 'Coach name cannot be empty.')
+    .max(50, 'Coach name cannot exceed 50 characters.'),
+  city: z.string().trim().optional().default('Unknown'),
+  zipcode: z.string().trim().optional(),
+});
+
+const addPlayerSchema = z.object({
+  playerId: z.string({ required_error: 'Player ID is required.' }).trim().min(1, 'Player ID cannot be empty.'),
+  jerseyNumber: z.coerce.number().int().min(0).max(99).optional().nullable(),
+  role: z.string().trim().optional().default('Player'),
+  age: z.coerce.number().int().min(1).max(120).optional().nullable(),
+  gender: z.string().trim().optional().nullable(),
+});
+
 export const createTeamService = async (payload) => {
-  // 1. Strict Data Validation
-  if (
-    !payload.name ||
-    typeof payload.name !== 'string' ||
-    payload.name.trim() === ''
-  ) {
-    throw new ValidationError(
-      'Team name is required and must be a text string.',
-    );
+  const result = createTeamSchema.safeParse(payload);
+  if (!result.success) {
+    const errorMsg = result.error.issues.map((e) => e.message).join(' ');
+    throw new ValidationError(errorMsg);
   }
 
-  if (payload.name.trim().length > 50) {
-    throw new ValidationError('Team name cannot exceed 50 characters.');
-  }
-
-  if (
-    !payload.coach ||
-    typeof payload.coach !== 'string' ||
-    payload.coach.trim() === ''
-  ) {
-    throw new ValidationError(
-      'Coach name is required and must be a text string.',
-    );
-  }
-
-  // 2. Data Preparation & Sanitization
+  const data = result.data;
   const teamId = crypto.randomUUID();
   const now = new Date().toISOString();
 
   const newTeam = {
     id: teamId,
-    name: payload.name.trim(),
-    coach: payload.coach.trim(),
-    city:
-      payload.city && typeof payload.city === 'string'
-        ? payload.city.trim()
-        : 'Unknown', // Optional field,
-    zipcode: payload.zipcode,
+    name: data.name,
+    coach: data.coach,
+    city: data.city,
+    ...(data.zipcode ? { zipcode: data.zipcode } : {}),
     createdAt: now,
     updatedAt: now,
     status: 'PENDING_REGISTRATION',
-    playerCount: payload.playerCount === undefined ? 0 : payload.playerCount, // Initialize a counter to help enforce roster limits later
+    playerCount: 0,
   };
 
-  // 3. Database Interaction
-  // Pass the fully validated and constructed object to the data layer
   await insertTeam(newTeam);
-
   return newTeam;
 };
 
-// get single team info
 export const getTeamService = async (teamId) => {
-  if (teamId !== undefined) {
-    const resp = await getTeamInfo(teamId);
-    return resp;
-  }
-};
-
-// get all teams info
-export const getAllTeamsService = async () => {
-  const resp = await getAllTeams();
-  return resp;
-};
-
-/** Adds a player to a team's roster.
- * @param {string} teamId - The ID of the team
- * @param {Object} payload - The player data (playerId, jerseyNumber, role, etc.)
- * @returns {Object} The created roster record
- */
-export const addPlayerToTeamService = async (teamId, payload) => {
-  // 1. Validate inputs
   if (!teamId || typeof teamId !== 'string' || teamId.trim() === '') {
     throw new ValidationError('A valid Team ID is required.');
   }
-  if (
-    !payload.playerId ||
-    typeof payload.playerId !== 'string' ||
-    payload.playerId.trim() === ''
-  ) {
-    throw new ValidationError(
-      'A valid Player ID is required to add them to the roster.',
-    );
+  return await getTeamInfo(teamId.trim());
+};
+
+export const getAllTeamsService = async () => {
+  return await getAllTeams();
+};
+
+export const addPlayerToTeamService = async (teamId, payload) => {
+  if (!teamId || typeof teamId !== 'string' || teamId.trim() === '') {
+    throw new ValidationError('A valid Team ID is required.');
   }
 
-  // Optional: You could call getTeamInfo(teamId) here to verify the team actually exists!
+  const result = addPlayerSchema.safeParse(payload);
+  if (!result.success) {
+    const errorMsg = result.error.issues.map((e) => e.message).join(' ');
+    throw new ValidationError(errorMsg);
+  }
 
-  // 2. Prepare the relational roster data
+  const team = await getTeamInfo(teamId.trim());
+  if (!team) {
+    throw new ValidationError(`Team with ID ${teamId} does not exist.`);
+  }
+
+  const data = result.data;
   const rosterData = {
-    jerseyNumber: payload.jerseyNumber ? Number(payload.jerseyNumber) : null,
-    role: payload.role ? payload.role.trim() : 'Player',
-    age: payload.age ? payload.age : null,
-    gender: payload.gender ? payload.gender : null,
+    jerseyNumber: data.jerseyNumber ?? null,
+    role: data.role,
+    age: data.age ?? null,
+    gender: data.gender ?? null,
     joinedAt: new Date().toISOString(),
   };
 
-  // 3. Database Interaction
   try {
-    const rosterRecord = await addPlayerToTeam(
-      teamId.trim(),
-      payload.playerId.trim(),
-      rosterData,
-    );
-    return rosterRecord;
+    return await addPlayerToTeam(teamId.trim(), data.playerId, rosterData);
   } catch (error) {
-    // DynamoDB throws this specific error if the ConditionExpression fails
-    // (meaning the player is already on this specific team's roster)
     if (error.name === 'ConditionalCheckFailedException') {
-      throw new ValidationError(
-        "This player is already registered on this team's roster.",
-      );
+      throw new ValidationError("This player is already registered on this team's roster.");
     }
     throw error;
   }
 };
 
 export const getPlayersOnTeamService = async (teamId) => {
-  if (teamId !== undefined) {
-    const resp = await getPlayersOnTeam(teamId);
-    return resp;
+  if (!teamId || typeof teamId !== 'string' || teamId.trim() === '') {
+    throw new ValidationError('A valid Team ID is required.');
   }
+  return await getPlayersOnTeam(teamId.trim());
 };
 
 export const getTeamTournamentsService = async (teamId) => {
-  if (teamId !== undefined) {
-    const resp = await getTournamentsForTeam(teamId);
+  if (!teamId || typeof teamId !== 'string' || teamId.trim() === '') {
+    throw new ValidationError('A valid Team ID is required.');
   }
+  return await getTournamentsForTeam(teamId.trim());
 };

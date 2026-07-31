@@ -2,18 +2,19 @@
     "name": "cancha-connect-api",
     "version": "1.0.0",
     "description": "Backend API for CanchaConnect",
-    "main": "src/handlers/createTeam.js",
+    "main": "src/index.js",
     "type": "module",
     "engines": {
         "node": ">=24.0.0"
     },
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1",
+        "test": "node --test",
         "local": "node server.js"
     },
     "dependencies": {
         "@aws-sdk/client-dynamodb": "^3.1083.0",
-        "@aws-sdk/lib-dynamodb": "^3.1083.0"
+        "@aws-sdk/lib-dynamodb": "^3.1083.0",
+        "zod": "^4.4.3"
     },
     "keywords": [],
     "author": "",
