@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - main
-      - re-structure
+      - 'test_*'
   pull_request:
     branches:
       - main
-      - re-structure
+      - 'test_*'
 
 # Prevent concurrent deployments from locking CloudFormation stacks
 concurrency:
@@ -52,7 +52,7 @@ jobs:
           npm run build -- --configuration production
 
   # ---------------------------------------------------------
-  # Job 2: Deploy to AWS (Runs only on Push to Main / Re-Structure)
+  # Job 2: Deploy to AWS (Branch-Based Dynamic Environment Routing)
   # ---------------------------------------------------------
   deploy:
     name: 🚀 Deploy to AWS Cloud
@@ -69,6 +69,32 @@ jobs:
         with:
           node-version: '24'
 
+      # Dynamically determine target environment based on branch name:
+      # - push to 'main' -> dev environment
+      # - push to 'test_*' -> staging environment
+      - name: Determine Target Environment
+        id: env-config
+        run: |
+          REF_NAME="${{ github.ref_name }}"
+          echo "Branch triggered: $REF_NAME"
+
+          if [[ "$REF_NAME" == "main" ]]; then
+            echo "Targeting DEV Environment"
+            echo "ENV_NAME=dev" >> $GITHUB_OUTPUT
+            echo "BUCKET_NAME=canchaconnect-deployments-dev" >> $GITHUB_OUTPUT
+            echo "ALLOWED_ORIGIN=*" >> $GITHUB_OUTPUT
+          elif [[ "$REF_NAME" == test_* ]]; then
+            echo "Targeting STAGING Environment"
+            echo "ENV_NAME=staging" >> $GITHUB_OUTPUT
+            echo "BUCKET_NAME=canchaconnect-deployments-staging" >> $GITHUB_OUTPUT
+            echo "ALLOWED_ORIGIN=https://staging.canchaconnect.com" >> $GITHUB_OUTPUT
+          else
+            echo "Defaulting to DEV Environment"
+            echo "ENV_NAME=dev" >> $GITHUB_OUTPUT
+            echo "BUCKET_NAME=canchaconnect-deployments-dev" >> $GITHUB_OUTPUT
+            echo "ALLOWED_ORIGIN=*" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -84,23 +110,23 @@ jobs:
 
       - name: Upload Lambda Package to S3
         run: |
-          aws s3 cp backend.zip s3://${{ secrets.DEPLOYMENT_BUCKET || 'canchaconnect-deployments-dev' }}/backend.zip
+          aws s3 cp backend.zip s3://${{ steps.env-config.outputs.BUCKET_NAME }}/backend.zip
 
       - name: Deploy CloudFormation Infrastructure
         run: |
           aws cloudformation deploy \
             --template-file infrastructure/template.yaml \
-            --stack-name CanchaConnectStack-${{ vars.ENVIRONMENT || 'dev' }} \
+            --stack-name CanchaConnectStack-${{ steps.env-config.outputs.ENV_NAME }} \
             --parameter-overrides \
-                Environment=${{ vars.ENVIRONMENT || 'dev' }} \
-                DeploymentBucket=${{ secrets.DEPLOYMENT_BUCKET || 'canchaconnect-deployments-dev' }} \
-                AllowedOrigin="${{ vars.ALLOWED_ORIGIN || '*' }}" \
+                Environment=${{ steps.env-config.outputs.ENV_NAME }} \
+                DeploymentBucket=${{ steps.env-config.outputs.BUCKET_NAME }} \
+                AllowedOrigin="${{ steps.env-config.outputs.ALLOWED_ORIGIN }}" \
             --capabilities CAPABILITY_IAM
 
       - name: Get CloudFormation Stack Outputs
         id: cfn
         run: |
-          STACK="CanchaConnectStack-${{ vars.ENVIRONMENT || 'dev' }}"
+          STACK="CanchaConnectStack-${{ steps.env-config.outputs.ENV_NAME }}"
           
           UI_BUCKET=$(aws cloudformation describe-stacks \
             --stack-name $STACK \
