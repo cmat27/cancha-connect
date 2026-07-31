@@ -114,14 +114,26 @@ jobs:
 
       - name: Deploy CloudFormation Infrastructure
         run: |
+          STACK_NAME="CanchaConnectStack-${{ steps.env-config.outputs.ENV_NAME }}"
+          
+          # Self-healing: Delete stack if stuck in ROLLBACK_COMPLETE state from initial failed creation
+          STACK_STATUS=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NOT_FOUND")
+          if [ "$STACK_STATUS" == "ROLLBACK_COMPLETE" ]; then
+            echo "⚠️ Stack $STACK_NAME is in ROLLBACK_COMPLETE state. Deleting before re-deploying..."
+            aws cloudformation delete-stack --stack-name $STACK_NAME
+            aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME
+            echo "✅ Stack $STACK_NAME successfully deleted. Proceeding with fresh deployment."
+          fi
+
           aws cloudformation deploy \
             --template-file infrastructure/template.yaml \
-            --stack-name CanchaConnectStack-${{ steps.env-config.outputs.ENV_NAME }} \
+            --stack-name $STACK_NAME \
             --parameter-overrides \
                 Environment=${{ steps.env-config.outputs.ENV_NAME }} \
                 DeploymentBucket=${{ steps.env-config.outputs.BUCKET_NAME }} \
                 AllowedOrigin="${{ steps.env-config.outputs.ALLOWED_ORIGIN }}" \
             --capabilities CAPABILITY_IAM
+
 
       - name: Get CloudFormation Stack Outputs
         id: cfn
