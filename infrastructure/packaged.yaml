@@ -372,7 +372,7 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Side: AllowCloudFrontServicePrincipalReadOnly
+          - Sid: AllowCloudFrontServicePrincipalReadOnly
             Effect: Allow
             Principal:
               Service: cloudfront.amazonaws.com
@@ -383,6 +383,7 @@ Resources:
               StringEquals:
                 AWS:SourceArn:
                   Fn::Sub: "arn:aws:cloudfront::${AWS::AccountId}:distribution/${UIDistribution}"
+
 
   CloudFrontOAC:
     Type: AWS::CloudFront::OriginAccessControl
