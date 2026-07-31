@@ -337,7 +337,7 @@ Resources:
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-          - Side: AllowCloudFrontServicePrincipalReadOnly
+          - Sid: AllowCloudFrontServicePrincipalReadOnly
             Effect: Allow
             Principal:
               Service: cloudfront.amazonaws.com
@@ -346,6 +346,7 @@ Resources:
             Condition:
               StringEquals:
                 AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${UIDistribution}"
+
 
   # ---------------------------------------------------------
   # 9. CloudFront CDN Distribution with Origin Access Control (OAC)
