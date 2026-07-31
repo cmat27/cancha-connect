@@ -158,7 +158,8 @@ jobs:
         run: |
           npm ci
           npm run build -- --configuration production
-          aws s3 sync dist/canchaconnect s3://${{ steps.cfn.outputs.UI_BUCKET }}/ --delete
+          aws s3 sync dist/cancha-connect-ui s3://${{ steps.cfn.outputs.UI_BUCKET }}/ --delete
+
 
       - name: Invalidate CloudFront CDN Cache
         run: |
