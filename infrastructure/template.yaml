@@ -408,9 +408,14 @@ Outputs:
     Description: CloudFront CDN Distribution Domain Name (Frontend Domain)
     Value: !GetAtt UIDistribution.DomainName
 
+  CloudFrontDistributionId:
+    Description: CloudFront CDN Distribution ID
+    Value: !Ref UIDistribution
+
   CloudFrontURL:
     Description: CloudFront HTTPS URL for UI Access
     Value: !Sub https://${UIDistribution.DomainName}
+
 
   UIBucketName:
     Description: Private S3 Bucket for UI Static Web Hosting

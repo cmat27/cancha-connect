@@ -451,10 +451,16 @@ Outputs:
     Value:
       Fn::GetAtt: [UIDistribution, DomainName]
 
+  CloudFrontDistributionId:
+    Description: CloudFront CDN Distribution ID
+    Value:
+      Ref: UIDistribution
+
   CloudFrontURL:
     Description: CloudFront HTTPS URL for UI Access
     Value:
       Fn::Sub: https://${UIDistribution.DomainName}
+
 
   UIBucketName:
     Description: Private S3 Bucket for UI Static Web Hosting
