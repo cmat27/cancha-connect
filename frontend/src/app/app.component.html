@@ -13,6 +13,23 @@
       <span class="brand-icon">⚽</span>
       <span class="brand-title">CanchaConnect</span>
     </div>
+
+    <!-- Desktop Navigation Links (Visible on >= 768px) -->
+    <nav class="desktop-nav">
+      <button class="nav-tab" [ngClass]="{'active': activeTab === 'dashboard'}" (click)="switchTab('dashboard')">
+        <span class="nav-icon">📊</span> Dashboard
+      </button>
+      <button class="nav-tab" [ngClass]="{'active': activeTab === 'teams'}" (click)="switchTab('teams')">
+        <span class="nav-icon">🛡️</span> Teams
+      </button>
+      <button class="nav-tab" [ngClass]="{'active': activeTab === 'players'}" (click)="switchTab('players')">
+        <span class="nav-icon">🏃</span> Players
+      </button>
+      <button class="nav-tab" [ngClass]="{'active': activeTab === 'tournaments'}" (click)="switchTab('tournaments')">
+        <span class="nav-icon">🏆</span> Tournaments
+      </button>
+    </nav>
+
     <div class="header-actions">
       <div class="status-badge" [ngClass]="isConnected ? 'online' : 'offline'">
         <span class="status-dot"></span>
@@ -23,6 +40,7 @@
       </button>
     </div>
   </header>
+
 
   <!-- Main Scrollable Content -->
   <main class="app-content">

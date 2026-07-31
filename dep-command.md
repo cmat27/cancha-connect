@@ -33,7 +33,7 @@ aws cloudformation deploy \
 
 # 3. Build & Deploy Angular UI
 cd frontend && npm install && npm run build -- --configuration production && cd ..
-aws s3 sync frontend/dist/canchaconnect s3://canchaconnect-ui-dev-<ACCOUNT_ID>/ --delete
+aws s3 sync frontend/dist/cancha-connect-ui s3://canchaconnect-ui-dev-<ACCOUNT_ID>/ --delete
 ```
 
 ### 🟡 Staging (`staging`)
@@ -50,7 +50,7 @@ aws cloudformation deploy \
 
 # 3. Build & Deploy Angular UI
 cd frontend && npm install && npm run build -- --configuration staging && cd ..
-aws s3 sync frontend/dist/canchaconnect s3://canchaconnect-ui-staging-<ACCOUNT_ID>/ --delete
+aws s3 sync frontend/dist/cancha-connect-ui s3://canchaconnect-ui-staging-<ACCOUNT_ID>/ --delete
 ```
 
 ### 🔴 Production (`prod`)
