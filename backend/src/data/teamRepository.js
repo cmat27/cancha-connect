@@ -1,32 +1,26 @@
 import {
   PutCommand,
   GetCommand,
-  ScanCommand,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { KeyBuilder } from '../utils/KeyBuilderUtility.js';
 import { docClient } from './dbClient.js';
 
-// This pulls the table name from our environment variables (set in CloudFormation)
-// When running locally without env vars, it falls back to 'CanchaConnectData'
 const TABLE_NAME = process.env.TABLE_NAME || 'CanchaConnectData';
 
 /**
  * Inserts a new team into the single-table DynamoDB design.
  */
 export const insertTeam = async (teamData) => {
-  // generate team key
   const keys = KeyBuilder.Team(teamData.id);
-  // keys is now: { PK: "TEAM#1234-abcd", SK: "METADATA" }
   const item = {
     ...keys,
-    ...teamData, // This spreads the rest of the data in!
+    ...teamData,
   };
 
   const command = new PutCommand({
     TableName: TABLE_NAME,
     Item: item,
-    // Condition ensures we don't accidentally overwrite an existing team ID
     ConditionExpression: 'attribute_not_exists(PK)',
   });
 
@@ -34,6 +28,9 @@ export const insertTeam = async (teamData) => {
   return item;
 };
 
+/**
+ * Retrieves a single team by ID.
+ */
 export const getTeamInfo = async (teamId) => {
   const command = new GetCommand({
     TableName: TABLE_NAME,
@@ -42,70 +39,38 @@ export const getTeamInfo = async (teamId) => {
 
   try {
     const response = await docClient.send(command);
-    return response.Item; // Returns the team object, or undefined if not found
+    return response.Item;
   } catch (error) {
     console.error(`Error retrieving team ${teamId}:`, error);
-    throw error; // See note below on error handling!
+    throw error;
   }
 };
 
+/**
+ * Retrieves all teams using Global Secondary Index (GSI1) Query instead of table Scan.
+ */
 export const getAllTeams = async () => {
-  const command = new ScanCommand({
+  const command = new QueryCommand({
     TableName: TABLE_NAME,
-    // Filter to only grab main Team records, ignoring players/other data
-    FilterExpression: 'begins_with(PK, :pkPrefix) AND SK = :skValue',
+    IndexName: 'GSI1',
+    KeyConditionExpression: 'GSI1PK = :gsi1pk',
     ExpressionAttributeValues: {
-      ':pkPrefix': 'TEAM#',
-      ':skValue': 'METADATA',
+      ':gsi1pk': 'TEAM',
     },
   });
 
   try {
     const response = await docClient.send(command);
-    console.log(`Retrieved ${response.Items.length} teams.`);
-
-    // Notice it's 'Items' (plural) for a Scan, not 'Item'
-
-    console.log(response.Items);
-    return response.Items;
+    return response.Items || [];
   } catch (error) {
     console.error('Error retrieving all teams:', error);
-    throw error; // Always throw so the router catches the 500 error!
+    throw error;
   }
 };
 
-export const insertPlayer = async (playerData) => {
-  const keys = KeyBuilder.Player(playerData.id);
-  const item = { ...keys, ...playerData };
-
-  const command = new PutCommand({
-    TableName: TABLE_NAME,
-    Item: item,
-    ConditionExpression: 'attribute_not_exists(PK)',
-  });
-
-  await docClient.send(command);
-  return item;
-};
-
-export const insertTournament = async (tournamentData) => {
-  const keys = KeyBuilder.Tournament(tournamentData.id);
-  const item = { ...keys, ...tournamentData };
-
-  const command = new PutCommand({
-    TableName: TABLE_NAME,
-    Item: item,
-    ConditionExpression: 'attribute_not_exists(PK)',
-  });
-
-  await docClient.send(command);
-  return item;
-};
-
-// =====================================================================
-// 2. RELATIONSHIPS (MANY-TO-MANY INSERTS)
-// =====================================================================
-
+/**
+ * Adds a player to a team roster.
+ */
 export const addPlayerToTeam = async (teamId, playerId, rosterData) => {
   const keys = KeyBuilder.Roster(teamId, playerId);
   const item = { ...keys, ...rosterData };
@@ -113,37 +78,16 @@ export const addPlayerToTeam = async (teamId, playerId, rosterData) => {
   const command = new PutCommand({
     TableName: TABLE_NAME,
     Item: item,
-    ConditionExpression:
-      'attribute_not_exists(PK) AND attribute_not_exists(SK)',
+    ConditionExpression: 'attribute_not_exists(PK) AND attribute_not_exists(SK)',
   });
 
   await docClient.send(command);
   return item;
 };
 
-export const registerTeamForTournament = async (
-  tournamentId,
-  teamId,
-  registrationData,
-) => {
-  const keys = KeyBuilder.Registration(tournamentId, teamId);
-  const item = { ...keys, ...registrationData };
-
-  const command = new PutCommand({
-    TableName: TABLE_NAME,
-    Item: item,
-    ConditionExpression:
-      'attribute_not_exists(PK) AND attribute_not_exists(SK)',
-  });
-
-  await docClient.send(command);
-  return item;
-};
-
-// =====================================================================
-// 3. ADVANCED ACCESS PATTERNS (QUERIES & GSI)
-// =====================================================================
-
+/**
+ * Retrieves all players on a given team's roster.
+ */
 export const getPlayersOnTeam = async (teamId) => {
   const command = new QueryCommand({
     TableName: TABLE_NAME,
@@ -158,42 +102,14 @@ export const getPlayersOnTeam = async (teamId) => {
   return response.Items || [];
 };
 
-export const getTeamsForPlayer = async (playerId) => {
-  const command = new QueryCommand({
-    TableName: TABLE_NAME,
-    IndexName: 'GSI1', // Looking at our reverse index
-    KeyConditionExpression:
-      'GSI1PK = :gsiPk AND begins_with(GSI1SK, :gsiSkPrefix)',
-    ExpressionAttributeValues: {
-      ':gsiPk': `PLAYER#${playerId}`,
-      ':gsiSkPrefix': 'TEAM#',
-    },
-  });
-
-  const response = await docClient.send(command);
-  return response.Items || [];
-};
-
-export const getTeamsInTournament = async (tournamentId) => {
-  const command = new QueryCommand({
-    TableName: TABLE_NAME,
-    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :skPrefix)',
-    ExpressionAttributeValues: {
-      ':pk': `TOURNAMENT#${tournamentId}`,
-      ':skPrefix': 'TEAM#',
-    },
-  });
-
-  const response = await docClient.send(command);
-  return response.Items || [];
-};
-
+/**
+ * Retrieves all tournaments a team is registered for.
+ */
 export const getTournamentsForTeam = async (teamId) => {
   const command = new QueryCommand({
     TableName: TABLE_NAME,
-    IndexName: 'GSI1', // Looking at our reverse index
-    KeyConditionExpression:
-      'GSI1PK = :gsiPk AND begins_with(GSI1SK, :gsiSkPrefix)',
+    IndexName: 'GSI1',
+    KeyConditionExpression: 'GSI1PK = :gsiPk AND begins_with(GSI1SK, :gsiSkPrefix)',
     ExpressionAttributeValues: {
       ':gsiPk': `TEAM#${teamId}`,
       ':gsiSkPrefix': 'TOURNAMENT#',

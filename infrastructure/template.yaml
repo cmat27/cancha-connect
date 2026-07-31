@@ -1,21 +1,45 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Infrastructura para CanchaConnect - App de Torneos de Fútbol
+Description: Infrastructura segura para CanchaConnect - App de Torneos de Fútbol
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment name
+
+  DeploymentBucket:
+    Type: String
+    Default: canchaconnect-deployments-dev
+    Description: S3 Bucket containing the Lambda deployment package backend.zip (e.g., canchaconnect-deployments-dev, canchaconnect-deployments-prod)
+
+
+  AllowedOrigin:
+    Type: String
+    Default: '*'
+    Description: Allowed origin domain for API CORS configuration
 
 Resources:
   # ---------------------------------------------------------
-  # 1. DynamoDB Table (Single-Table Design)
+  # 1. DynamoDB Table (Single-Table Design + Encryption & PITR)
   # ---------------------------------------------------------
   CanchaConnectTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: CanchaConnectData
+      TableName: !Sub "CanchaConnectData-${Environment}"
       BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
       AttributeDefinitions:
         - AttributeName: PK
           AttributeType: S
         - AttributeName: SK
           AttributeType: S
-        # --- NEW ATTRIBUTES FOR GSI ---
         - AttributeName: GSI1PK
           AttributeType: S
         - AttributeName: GSI1SK
@@ -25,7 +49,6 @@ Resources:
           KeyType: HASH
         - AttributeName: SK
           KeyType: RANGE
-      # --- NEW GLOBAL SECONDARY INDEX ---
       GlobalSecondaryIndexes:
         - IndexName: GSI1
           KeySchema:
@@ -34,10 +57,86 @@ Resources:
             - AttributeName: GSI1SK
               KeyType: RANGE
           Projection:
-            ProjectionType: ALL # Copies all data to the index for fast reads
+            ProjectionType: ALL
 
   # ---------------------------------------------------------
-  # 2. Shared IAM Role for Lambdas
+  # 2. Amazon Cognito User Pool & App Client (Authentication)
+  # ---------------------------------------------------------
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "CanchaConnectUserPool-${Environment}"
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "CanchaConnectWebClient-${Environment}"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false # SPA public client (No client secret)
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+      AllowedOAuthFlows:
+        - code
+        - implicit
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - http://localhost:4200
+        - https://localhost:4200
+      LogoutURLs:
+        - http://localhost:4200
+        - https://localhost:4200
+
+  # User Pool Groups for Role-Based Access Control (RBAC)
+  OrganizersGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Organizers
+      Description: Tournament Organizers and Referee Managers
+      UserPoolId: !Ref UserPool
+
+  CoachesGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Coaches
+      Description: Team Coaches and Managers
+      UserPoolId: !Ref UserPool
+
+  PlayersGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Players
+      Description: Registered Football Players
+      UserPoolId: !Ref UserPool
+
+  AdminsGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Admins
+      Description: System Administrators
+      UserPoolId: !Ref UserPool
+
+
+  # ---------------------------------------------------------
+  # 3. Shared IAM Role for Lambdas
   # ---------------------------------------------------------
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -64,17 +163,18 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:UpdateItem
                   - dynamodb:DeleteItem
-                Resource: !GetAtt CanchaConnectTable.Arn
+                Resource:
+                  - !GetAtt CanchaConnectTable.Arn
+                  - !Sub "${CanchaConnectTable.Arn}/index/*"
 
   # ---------------------------------------------------------
-  # 3. Main API Lambda Function (The Domain Router)
+  # 4. Main API Lambda Function (The Domain Router)
   # ---------------------------------------------------------
   ApiLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: CanchaConnect-processor-lambda
+      FunctionName: !Sub "CanchaConnect-processor-lambda-${Environment}"
       Runtime: nodejs24.x
-      # Points to a central index file that will route the requests
       Handler: src/index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       MemorySize: 256
@@ -82,21 +182,55 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref CanchaConnectTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+          USER_POOL_ID: !Ref UserPool
       Code:
-        S3Bucket: "canchaconnect-deployments-dev" 
-        S3Key: backend.zip # Ensure your code is zipped and uploaded with this exact name
+        S3Bucket: !Ref DeploymentBucket
+        S3Key: backend.zip
 
   # ---------------------------------------------------------
-  # 4. API Gateway (HTTP API V2)
+  # 5. API Gateway (HTTP API V2 + CORS Configuration)
   # ---------------------------------------------------------
   CanchaConnectHttpApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: CanchaConnectHTTPAPI
+      Name: !Sub "CanchaConnectHTTPAPI-${Environment}"
       ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedOrigin
+        AllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Amz-Date
+          - X-Api-Key
+          - X-Amz-Security-Token
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        MaxAge: 3600
 
   # ---------------------------------------------------------
-  # 5. Integration & Catch-All Route
+  # 6. API Gateway JWT Authorizer (Cognito Integration)
+  # ---------------------------------------------------------
+  ApiAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      AuthorizerType: JWT
+      IdentitySource:
+        - "$request.header.Authorization"
+      Name: CognitoJWTAuthorizer
+      JwtConfiguration:
+        Audience:
+          - !Ref UserPoolClient
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+
+  # ---------------------------------------------------------
+  # 7. Integration & Secured Routes
   # ---------------------------------------------------------
   ApiIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -106,13 +240,74 @@ Resources:
       IntegrationUri: !GetAtt ApiLambdaFunction.Arn
       PayloadFormatVersion: '2.0'
 
-  # The $default route acts as a catch-all for ANY method and ANY path
+  # Authenticated Default Route (Requires JWT Token for POST, PUT, DELETE write operations)
   DefaultRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref CanchaConnectHttpApi
       RouteKey: "$default"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref ApiAuthorizer
       Target: !Join [ "/", [ "integrations", !Ref ApiIntegration ] ]
+
+  # Public Unauthenticated Health Check Route
+  HealthCheckRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      RouteKey: "GET /health"
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref ApiIntegration ] ]
+
+  # Public Unauthenticated Read Routes (Option A Hybrid Model)
+  GetTeamsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      RouteKey: "GET /teams"
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref ApiIntegration ] ]
+
+  GetTeamsProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      RouteKey: "GET /teams/{proxy+}"
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref ApiIntegration ] ]
+
+  GetPlayersRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      RouteKey: "GET /players"
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref ApiIntegration ] ]
+
+  GetPlayersProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      RouteKey: "GET /players/{proxy+}"
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref ApiIntegration ] ]
+
+  GetTournamentsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      RouteKey: "GET /tournaments"
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref ApiIntegration ] ]
+
+  GetTournamentsProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref CanchaConnectHttpApi
+      RouteKey: "GET /tournaments/{proxy+}"
+      AuthorizationType: NONE
+      Target: !Join [ "/", [ "integrations", !Ref ApiIntegration ] ]
+
 
   ApiGatewayInvokePermission:
     Type: AWS::Lambda::Permission
@@ -122,7 +317,106 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CanchaConnectHttpApi}/*/*"
 
+  # ---------------------------------------------------------
+  # 8. S3 Private Bucket for UI Hosting
+  # ---------------------------------------------------------
+  UIBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "canchaconnect-ui-${Environment}-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  UIBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UIBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Side: AllowCloudFrontServicePrincipalReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${UIBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${UIDistribution}"
+
+  # ---------------------------------------------------------
+  # 9. CloudFront CDN Distribution with Origin Access Control (OAC)
+  # ---------------------------------------------------------
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "CanchaConnectOAC-${Environment}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  UIDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "CDN Distribution for CanchaConnect UI (${Environment})"
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3UIOrigin
+            DomainName: !GetAtt UIBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: S3UIOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
 Outputs:
   ApiEndpoint:
-    Description: URL de la API Gateway
+    Description: URL de la API Gateway (HTTP API v2)
     Value: !Sub https://${CanchaConnectHttpApi}.execute-api.${AWS::Region}.amazonaws.com/
+
+  UserPoolId:
+    Description: Amazon Cognito User Pool ID
+    Value: !Ref UserPool
+
+  UserPoolClientId:
+    Description: Amazon Cognito App Client ID
+    Value: !Ref UserPoolClient
+
+  CognitoIssuerUrl:
+    Description: Cognito JWT Token Issuer URL
+    Value: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+
+  CloudFrontDomainName:
+    Description: CloudFront CDN Distribution Domain Name (Frontend Domain)
+    Value: !GetAtt UIDistribution.DomainName
+
+  CloudFrontDistributionId:
+    Description: CloudFront CDN Distribution ID
+    Value: !Ref UIDistribution
+
+  CloudFrontURL:
+    Description: CloudFront HTTPS URL for UI Access
+    Value: !Sub https://${UIDistribution.DomainName}
+
+
+  UIBucketName:
+    Description: Private S3 Bucket for UI Static Web Hosting
+    Value: !Ref UIBucket

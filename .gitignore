@@ -1,6 +1,5 @@
 node_modules/
 .env
-.dep-command.md
-node_modules/
-backend/server.js
-dep-command.js
+*.zip
+frontend/dist/
+frontend/node_modules/

@@ -1,41 +1,42 @@
 import http from 'http';
+import { URL } from 'url';
 import { handler } from './src/index.js';
 
 const PORT = process.env.PORT || 3000;
 
-// This server mimics AWS API Gateway locally
+// Local HTTP Server mimicking AWS API Gateway HTTP API v2
 const server = http.createServer((req, res) => {
   let body = '';
 
-  // Collect data chunks from the request
   req.on('data', (chunk) => {
     body += chunk.toString();
   });
 
-  // Once the entire request is received
   req.on('end', async () => {
-    // 1. Construct an event object that looks exactly like what API Gateway sends
+    const fullUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const queryParams = {};
+    fullUrl.searchParams.forEach((val, key) => {
+      queryParams[key] = val;
+    });
+
     const event = {
-      rawPath: req.url.split('?')[0], // ignore query strings for the route matching
+      rawPath: fullUrl.pathname,
       requestContext: {
         http: {
           method: req.method,
         },
       },
       headers: req.headers,
+      queryStringParameters: Object.keys(queryParams).length > 0 ? queryParams : null,
       body: body || null,
       isBase64Encoded: false,
     };
 
     try {
-      // 2. Pass the mocked event to your Lambda handler
       const response = await handler(event);
 
-      // 3. Translate the Lambda response back to a standard HTTP response
-      res.writeHead(
-        response.statusCode || 200,
-        response.headers || { 'Content-Type': 'application/json' },
-      );
+      const headers = response.headers || { 'Content-Type': 'application/json' };
+      res.writeHead(response.statusCode || 200, headers);
       res.end(response.body || '');
     } catch (error) {
       console.error('Local Server Error:', error);
@@ -48,7 +49,15 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   console.log(`\n⚽️ CanchaConnect API is running locally!`);
   console.log(`🚀 Server listening on http://localhost:${PORT}`);
-  console.log(
-    `\nTry it out: curl -X POST http://localhost:${PORT}/teams -d '{"name": "Local FC", "coach": "Mister"}'\n`,
-  );
+  console.log(`\nAvailable Endpoints:`);
+  console.log(`  - POST /teams                       Create team`);
+  console.log(`  - GET  /teams                       Get all teams`);
+  console.log(`  - GET  /teams/:id                   Get team details`);
+  console.log(`  - POST /teams/:id/players           Add player to roster`);
+  console.log(`  - GET  /teams/:id/players           Get team roster`);
+  console.log(`  - POST /players                     Create player`);
+  console.log(`  - GET  /players                     Get all players`);
+  console.log(`  - POST /tournaments                 Create tournament`);
+  console.log(`  - GET  /tournaments                 Get all tournaments`);
+  console.log(`  - POST /tournaments/:id/teams       Register team for tournament\n`);
 });
