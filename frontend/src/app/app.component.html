@@ -17,45 +17,80 @@
     <!-- Desktop Navigation Links (Visible on >= 768px) -->
     <nav class="desktop-nav">
       <button class="nav-tab" [ngClass]="{'active': activeTab === 'dashboard'}" (click)="switchTab('dashboard')">
-        <span class="nav-icon">📊</span> Dashboard
+        <span class="nav-icon">📊</span> {{ t('dashboard') }}
       </button>
       <button class="nav-tab" [ngClass]="{'active': activeTab === 'teams'}" (click)="switchTab('teams')">
-        <span class="nav-icon">🛡️</span> Teams
+        <span class="nav-icon">🛡️</span> {{ t('teams') }}
       </button>
       <button class="nav-tab" [ngClass]="{'active': activeTab === 'players'}" (click)="switchTab('players')">
-        <span class="nav-icon">🏃</span> Players
+        <span class="nav-icon">🏃</span> {{ t('players') }}
       </button>
       <button class="nav-tab" [ngClass]="{'active': activeTab === 'tournaments'}" (click)="switchTab('tournaments')">
-        <span class="nav-icon">🏆</span> Tournaments
+        <span class="nav-icon">🏆</span> {{ t('tournaments') }}
       </button>
     </nav>
 
     <div class="header-actions">
+      <!-- Language Switcher Toggle -->
+      <button class="lang-toggle-btn" (click)="toggleLanguage()" title="Switch Language (Español / English)">
+        <span class="lang-flag">{{ currentLang === 'en' ? '🇺🇸' : '🇲🇽' }}</span>
+        <span class="lang-code">{{ currentLang.toUpperCase() }}</span>
+      </button>
+
       <div class="status-badge" [ngClass]="isConnected ? 'online' : 'offline'">
         <span class="status-dot"></span>
-        {{ isConnected ? 'Live API' : 'Local Mode' }}
+        {{ isConnected ? t('liveApi') : t('localMode') }}
       </div>
+
+      <!-- Auth User Badge / Login Trigger -->
+      <ng-container *ngIf="currentUser; else guestBadge">
+        <div class="user-badge" title="Logged in as {{ currentUser.email }}">
+          <span class="role-pill">{{ currentUser.role }}</span>
+          <span class="user-email">{{ currentUser.email }}</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" (click)="onSignOut()" title="Sign Out">
+          🚪 {{ t('logout') }}
+        </button>
+      </ng-container>
+      <ng-template #guestBadge>
+        <button class="btn btn-primary btn-sm" (click)="openAuthModal()">
+          🔑 {{ t('signIn') }}
+        </button>
+      </ng-template>
+
       <button class="icon-btn" (click)="toggleTheme()" title="Toggle Theme">
         {{ isDarkTheme ? '☀️' : '🌙' }}
       </button>
     </div>
   </header>
 
-
   <!-- Main Scrollable Content -->
   <main class="app-content">
+
+    <!-- Guest Mode Banner -->
+    <div class="guest-mode-banner" *ngIf="!currentUser">
+      <div class="guest-banner-icon">👀</div>
+      <div class="guest-banner-text">
+        <strong>{{ t('guestBannerTitle') }}</strong> {{ t('guestBannerDesc') }}
+        <a class="auth-link" (click)="openAuthModal()">{{ t('signInModalTitle') }}</a>
+      </div>
+    </div>
 
     <!-- TAB 1: DASHBOARD -->
     <ng-container *ngIf="activeTab === 'dashboard'">
       <!-- Welcome Banner -->
       <div class="welcome-banner">
-        <div class="welcome-title">Soccer Dashboard 🏆</div>
-        <div class="welcome-subtitle">Manage local tournaments, team rosters, and player registrations in real time.</div>
+        <div class="welcome-title">CanchaConnect 🏆</div>
+        <div class="welcome-subtitle">
+          {{ currentLang === 'es' ? 'Gestiona torneos locales, plantillas de equipos y registros de jugadores en tiempo real.' : 'Manage local tournaments, team rosters, and player registrations in real time.' }}
+        </div>
       </div>
+
+
 
       <!-- Stats Grid -->
       <div class="section-header">
-        <span class="section-title">📊 Key Metrics</span>
+        <span class="section-title">📊 {{ t('keyMetrics') }}</span>
       </div>
       <div class="stats-grid">
         <div class="stat-card" (click)="switchTab('teams')">
@@ -63,7 +98,7 @@
             <div class="stat-icon emerald">🛡️</div>
             <span class="stat-value">{{ teams.length }}</span>
           </div>
-          <span class="stat-label">Total Teams</span>
+          <span class="stat-label">{{ t('totalTeams') }}</span>
         </div>
 
         <div class="stat-card" (click)="switchTab('players')">
@@ -71,7 +106,7 @@
             <div class="stat-icon cyan">🏃</div>
             <span class="stat-value">{{ players.length }}</span>
           </div>
-          <span class="stat-label">Registered Players</span>
+          <span class="stat-label">{{ t('registeredPlayers') }}</span>
         </div>
 
         <div class="stat-card" (click)="switchTab('tournaments')">
@@ -79,7 +114,7 @@
             <div class="stat-icon amber">🏆</div>
             <span class="stat-value">{{ tournaments.length }}</span>
           </div>
-          <span class="stat-label">Active Tournaments</span>
+          <span class="stat-label">{{ t('activeTournaments') }}</span>
         </div>
 
         <div class="stat-card">
@@ -87,43 +122,43 @@
             <div class="stat-icon crimson">⚡</div>
             <span class="stat-value">99.9%</span>
           </div>
-          <span class="stat-label">API Health</span>
+          <span class="stat-label">{{ t('apiHealth') }}</span>
         </div>
       </div>
 
       <!-- Quick Actions -->
       <div class="section-header">
-        <span class="section-title">⚡ Quick Actions</span>
+        <span class="section-title">⚡ {{ t('quickActions') }}</span>
       </div>
       <div class="quick-actions-bar">
-        <button class="btn btn-primary" (click)="showCreateTeamModal = true">
-          <span>+ New Team</span>
+        <button class="btn btn-primary" (click)="guardedAction(openCreateTeamModal, 'Coaches')">
+          <span>{{ t('newTeam') }}</span>
         </button>
-        <button class="btn btn-secondary" (click)="showCreatePlayerModal = true">
-          <span>+ New Player</span>
+        <button class="btn btn-secondary" (click)="guardedAction(openCreatePlayerModal)">
+          <span>{{ t('newPlayer') }}</span>
         </button>
-        <button class="btn btn-secondary" (click)="showCreateTourneyModal = true">
-          <span>+ Tournament</span>
+        <button class="btn btn-secondary" (click)="guardedAction(openCreateTourneyModal, 'Organizers')">
+          <span>{{ t('newTournament') }}</span>
         </button>
       </div>
 
       <!-- Teams Preview -->
       <div class="section-header">
-        <span class="section-title">🛡️ Registered Teams</span>
-        <button class="action-link" (click)="switchTab('teams')">View All →</button>
+        <span class="section-title">🛡️ {{ t('registeredTeamsTitle') }}</span>
+        <button class="action-link" (click)="switchTab('teams')">{{ t('viewAll') }}</button>
       </div>
       <div class="card-list">
         <div class="item-card" *ngFor="let team of teams.slice(0, 3)" (click)="openTeamDetail(team)">
           <div class="item-header">
             <div>
               <div class="item-title">{{ team.name }}</div>
-              <div class="item-subtitle">Coach: {{ team.coach }}</div>
+              <div class="item-subtitle">{{ currentLang === 'es' ? 'Entrenador' : 'Coach' }}: {{ team.coach }}</div>
             </div>
             <span class="badge badge-green">{{ team.status || 'ACTIVE' }}</span>
           </div>
           <div class="item-meta">
             <span class="meta-item">📍 {{ team.city }}</span>
-            <span class="meta-item">👥 {{ team.playerCount || 0 }} Players</span>
+            <span class="meta-item">👥 {{ team.playerCount || 0 }} {{ t('players') }}</span>
           </div>
         </div>
       </div>
@@ -132,13 +167,13 @@
     <!-- TAB 2: TEAMS -->
     <ng-container *ngIf="activeTab === 'teams'">
       <div class="section-header">
-        <span class="section-title">🛡️ Team Management</span>
-        <button class="btn btn-primary" (click)="showCreateTeamModal = true">+ Create</button>
+        <span class="section-title">🛡️ {{ t('teams') }}</span>
+        <button class="btn btn-primary" (click)="guardedAction(openCreateTeamModal, 'Coaches')">{{ t('newTeam') }}</button>
       </div>
 
       <div class="search-container">
         <span class="search-icon">🔍</span>
-        <input type="text" class="search-input" placeholder="Search by team name or coach..." [(ngModel)]="teamSearch">
+        <input type="text" class="search-input" [placeholder]="t('searchTeams')" [(ngModel)]="teamSearch">
       </div>
 
       <div class="card-list">
@@ -146,7 +181,7 @@
           <div class="item-header">
             <div>
               <div class="item-title">{{ team.name }}</div>
-              <div class="item-subtitle">Coach: {{ team.coach }}</div>
+              <div class="item-subtitle">{{ currentLang === 'es' ? 'Entrenador' : 'Coach' }}: {{ team.coach }}</div>
             </div>
             <span class="badge badge-green">{{ team.status || 'ACTIVE' }}</span>
           </div>
@@ -157,7 +192,7 @@
           </div>
         </div>
         <div *ngIf="filteredTeams.length === 0" class="welcome-banner" style="text-align: center;">
-          <p>No teams found matching your search.</p>
+          <p>{{ currentLang === 'es' ? 'No se encontraron equipos.' : 'No teams found matching search.' }}</p>
         </div>
       </div>
     </ng-container>
@@ -165,13 +200,13 @@
     <!-- TAB 3: PLAYERS -->
     <ng-container *ngIf="activeTab === 'players'">
       <div class="section-header">
-        <span class="section-title">🏃 Player Directory</span>
-        <button class="btn btn-primary" (click)="showCreatePlayerModal = true">+ New Player</button>
+        <span class="section-title">🏃 {{ t('players') }}</span>
+        <button class="btn btn-primary" (click)="guardedAction(openCreatePlayerModal)">{{ t('newPlayer') }}</button>
       </div>
 
       <div class="search-container">
         <span class="search-icon">🔍</span>
-        <input type="text" class="search-input" placeholder="Search by player name or position..." [(ngModel)]="playerSearch">
+        <input type="text" class="search-input" [placeholder]="t('searchPlayers')" [(ngModel)]="playerSearch">
       </div>
 
       <div class="card-list">
@@ -179,13 +214,10 @@
           <div class="item-header">
             <div>
               <div class="item-title">{{ player.fullName }}</div>
-              <div class="item-subtitle">{{ player.email || 'No email registered' }}</div>
+              <div class="item-subtitle">{{ player.email || 'No email' }}</div>
             </div>
             <span class="badge badge-cyan">{{ player.position }}</span>
           </div>
-        </div>
-        <div *ngIf="filteredPlayers.length === 0" class="welcome-banner" style="text-align: center;">
-          <p>No players found.</p>
         </div>
       </div>
     </ng-container>
@@ -193,13 +225,13 @@
     <!-- TAB 4: TOURNAMENTS -->
     <ng-container *ngIf="activeTab === 'tournaments'">
       <div class="section-header">
-        <span class="section-title">🏆 Tournaments</span>
-        <button class="btn btn-primary" (click)="showCreateTourneyModal = true">+ Create</button>
+        <span class="section-title">🏆 {{ t('tournaments') }}</span>
+        <button class="btn btn-primary" (click)="guardedAction(openCreateTourneyModal, 'Organizers')">{{ t('newTournament') }}</button>
       </div>
 
       <div class="search-container">
         <span class="search-icon">🔍</span>
-        <input type="text" class="search-input" placeholder="Search tournaments..." [(ngModel)]="tourneySearch">
+        <input type="text" class="search-input" [placeholder]="t('searchTourneys')" [(ngModel)]="tourneySearch">
       </div>
 
       <div class="card-list">
@@ -216,7 +248,7 @@
             <span class="meta-item">🛡️ Max Teams: {{ tourney.maxTeams }}</span>
           </div>
           <button class="btn btn-secondary btn-full" style="margin-top: 6px;" (click)="openRegisterTourney(tourney)">
-            📝 Register Team
+            📝 {{ t('registerTeamBtn') }}
           </button>
         </div>
       </div>
@@ -224,26 +256,68 @@
 
   </main>
 
+  <!-- MODAL 0: AUTH SIGN-IN & REGISTRATION -->
+  <div class="modal-overlay" *ngIf="showAuthModal" (click)="showAuthModal = false">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <span class="modal-title">🔑 {{ t('signInModalTitle') }}</span>
+        <button class="icon-btn" (click)="showAuthModal = false">✕</button>
+      </div>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+        {{ t('signInModalSubtitle') }}
+      </p>
+
+      <!-- Social Federated Sign-In Buttons -->
+      <div class="social-auth-container">
+        <button class="btn btn-social btn-google" (click)="onSocialSignIn('Google')">
+          <span class="social-icon">🌐</span> {{ t('continueGoogle') }}
+        </button>
+        <button class="btn btn-social btn-facebook" (click)="onSocialSignIn('Facebook')">
+          <span class="social-icon">📘</span> {{ t('continueFacebook') }}
+        </button>
+      </div>
+
+      <div class="divider-line">
+        <span>{{ t('orEmail') }}</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">{{ t('emailLabel') }}</label>
+        <input type="email" class="form-input" placeholder="e.g. coach@canchaconnect.com" [(ngModel)]="authEmail">
+      </div>
+      <div class="form-group">
+        <label class="form-label">{{ t('selectRoleLabel') }}</label>
+        <select class="form-select" [(ngModel)]="authRole">
+          <option value="Coaches">{{ t('roleCoach') }}</option>
+          <option value="Organizers">{{ t('roleOrganizer') }}</option>
+          <option value="Players">{{ t('rolePlayer') }}</option>
+          <option value="Admins">{{ t('roleAdmin') }}</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-full" (click)="onSignIn()">{{ t('authButton') }}</button>
+    </div>
+  </div>
+
   <!-- MODAL 1: CREATE TEAM -->
   <div class="modal-overlay" *ngIf="showCreateTeamModal" (click)="showCreateTeamModal = false">
     <div class="modal-content" (click)="$event.stopPropagation()">
       <div class="modal-header">
-        <span class="modal-title">🛡️ Create New Team</span>
+        <span class="modal-title">🛡️ {{ t('newTeam') }}</span>
         <button class="icon-btn" (click)="showCreateTeamModal = false">✕</button>
       </div>
       <div class="form-group">
-        <label class="form-label">Team Name</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Nombre del Equipo' : 'Team Name' }}</label>
         <input type="text" class="form-input" placeholder="e.g. Real Barranquilla" [(ngModel)]="newTeam.name">
       </div>
       <div class="form-group">
-        <label class="form-label">Head Coach</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Director Técnico' : 'Head Coach' }}</label>
         <input type="text" class="form-input" placeholder="e.g. Coach Mister" [(ngModel)]="newTeam.coach">
       </div>
       <div class="form-group">
-        <label class="form-label">City / Home Ground</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Ciudad / Sede' : 'City / Home Ground' }}</label>
         <input type="text" class="form-input" placeholder="e.g. Barranquilla" [(ngModel)]="newTeam.city">
       </div>
-      <button class="btn btn-primary btn-full" (click)="onCreateTeam()">Create Team</button>
+      <button class="btn btn-primary btn-full" (click)="onCreateTeam()">{{ t('newTeam') }}</button>
     </div>
   </div>
 
@@ -251,19 +325,19 @@
   <div class="modal-overlay" *ngIf="showCreatePlayerModal" (click)="showCreatePlayerModal = false">
     <div class="modal-content" (click)="$event.stopPropagation()">
       <div class="modal-header">
-        <span class="modal-title">🏃 Register New Player</span>
+        <span class="modal-title">🏃 {{ t('newPlayer') }}</span>
         <button class="icon-btn" (click)="showCreatePlayerModal = false">✕</button>
       </div>
       <div class="form-group">
-        <label class="form-label">First Name</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Nombre' : 'First Name' }}</label>
         <input type="text" class="form-input" placeholder="e.g. Lionel" [(ngModel)]="newPlayer.firstName">
       </div>
       <div class="form-group">
-        <label class="form-label">Last Name</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Apellido' : 'Last Name' }}</label>
         <input type="text" class="form-input" placeholder="e.g. Messi" [(ngModel)]="newPlayer.lastName">
       </div>
       <div class="form-group">
-        <label class="form-label">Preferred Position</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Posición Preferida' : 'Preferred Position' }}</label>
         <select class="form-select" [(ngModel)]="newPlayer.position">
           <option value="Goalkeeper">Goalkeeper (GK)</option>
           <option value="Defender">Defender (DEF)</option>
@@ -272,10 +346,10 @@
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Email Address</label>
+        <label class="form-label">{{ t('emailLabel') }}</label>
         <input type="email" class="form-input" placeholder="e.g. player@canchaconnect.com" [(ngModel)]="newPlayer.email">
       </div>
-      <button class="btn btn-primary btn-full" (click)="onCreatePlayer()">Create Player</button>
+      <button class="btn btn-primary btn-full" (click)="onCreatePlayer()">{{ t('newPlayer') }}</button>
     </div>
   </div>
 
@@ -283,22 +357,22 @@
   <div class="modal-overlay" *ngIf="showCreateTourneyModal" (click)="showCreateTourneyModal = false">
     <div class="modal-content" (click)="$event.stopPropagation()">
       <div class="modal-header">
-        <span class="modal-title">🏆 Create Tournament</span>
+        <span class="modal-title">🏆 {{ t('newTournament') }}</span>
         <button class="icon-btn" (click)="showCreateTourneyModal = false">✕</button>
       </div>
       <div class="form-group">
-        <label class="form-label">Tournament Name</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Nombre del Torneo' : 'Tournament Name' }}</label>
         <input type="text" class="form-input" placeholder="e.g. Copa Cancha 2026" [(ngModel)]="newTourney.name">
       </div>
       <div class="form-group">
-        <label class="form-label">Location / Venue</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Ubicación / Estadio' : 'Location / Venue' }}</label>
         <input type="text" class="form-input" placeholder="e.g. Municipal Stadium" [(ngModel)]="newTourney.location">
       </div>
       <div class="form-group">
-        <label class="form-label">Max Teams Capacity</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Límite de Equipos' : 'Max Teams Capacity' }}</label>
         <input type="number" class="form-input" placeholder="16" [(ngModel)]="newTourney.maxTeams">
       </div>
-      <button class="btn btn-primary btn-full" (click)="onCreateTournament()">Create Tournament</button>
+      <button class="btn btn-primary btn-full" (click)="onCreateTournament()">{{ t('newTournament') }}</button>
     </div>
   </div>
 
@@ -308,13 +382,13 @@
       <div class="modal-header" *ngIf="selectedTeam">
         <div>
           <span class="modal-title">{{ selectedTeam.name }}</span>
-          <div style="font-size: 12px; color: var(--text-muted);">Coach: {{ selectedTeam.coach }} • {{ selectedTeam.city }}</div>
+          <div style="font-size: 12px; color: var(--text-muted);">{{ currentLang === 'es' ? 'Entrenador' : 'Coach' }}: {{ selectedTeam.coach }} • {{ selectedTeam.city }}</div>
         </div>
         <button class="icon-btn" (click)="showTeamDetailModal = false">✕</button>
       </div>
 
       <div class="section-header">
-        <span class="section-title">📋 Roster Roster</span>
+        <span class="section-title">📋 {{ t('teamRoster') }}</span>
       </div>
 
       <div class="card-list" style="margin-bottom: 20px;">
@@ -327,26 +401,23 @@
             </div>
           </div>
         </div>
-        <div *ngIf="teamRoster.length === 0" style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 10px;">
-          No registered roster players found yet.
-        </div>
       </div>
 
       <div class="section-header">
-        <span class="section-title">➕ Add Player to Roster</span>
+        <span class="section-title">➕ {{ t('addPlayerRoster') }}</span>
       </div>
       <div class="form-group">
-        <label class="form-label">Select Player</label>
+        <label class="form-label">{{ t('selectPlayer') }}</label>
         <select class="form-select" [(ngModel)]="addPlayerId">
-          <option value="">-- Choose Player --</option>
+          <option value="">-- {{ t('selectPlayer') }} --</option>
           <option *ngFor="let p of players" [value]="p.id">{{ p.fullName }} ({{ p.position }})</option>
         </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Jersey Number</label>
+        <label class="form-label">{{ t('jerseyNumber') }}</label>
         <input type="number" class="form-input" placeholder="10" [(ngModel)]="addJerseyNumber">
       </div>
-      <button class="btn btn-primary btn-full" (click)="onAddPlayerToRoster()">Add Player to Roster</button>
+      <button class="btn btn-primary btn-full" (click)="guardedAction(onAddPlayerToRoster, 'Coaches')">{{ t('addPlayerRoster') }}</button>
     </div>
   </div>
 
@@ -354,17 +425,17 @@
   <div class="modal-overlay" *ngIf="showRegisterTourneyModal" (click)="showRegisterTourneyModal = false">
     <div class="modal-content" (click)="$event.stopPropagation()">
       <div class="modal-header" *ngIf="selectedTourney">
-        <span class="modal-title">📝 Register Team for {{ selectedTourney.name }}</span>
+        <span class="modal-title">📝 {{ t('registerTeamBtn') }} - {{ selectedTourney.name }}</span>
         <button class="icon-btn" (click)="showRegisterTourneyModal = false">✕</button>
       </div>
       <div class="form-group">
-        <label class="form-label">Select Team</label>
+        <label class="form-label">{{ currentLang === 'es' ? 'Seleccionar Equipo' : 'Select Team' }}</label>
         <select class="form-select" [(ngModel)]="registerTeamId">
-          <option value="">-- Select Team --</option>
+          <option value="">-- {{ currentLang === 'es' ? 'Seleccionar Equipo' : 'Select Team' }} --</option>
           <option *ngFor="let t of teams" [value]="t.id">{{ t.name }} ({{ t.city }})</option>
         </select>
       </div>
-      <button class="btn btn-primary btn-full" (click)="onRegisterTeamForTourney()">Register Team</button>
+      <button class="btn btn-primary btn-full" (click)="onRegisterTeamForTourney()">{{ t('registerTeamBtn') }}</button>
     </div>
   </div>
 
@@ -372,19 +443,19 @@
   <nav class="bottom-dock">
     <button class="nav-item" [ngClass]="{'active': activeTab === 'dashboard'}" (click)="switchTab('dashboard')">
       <span class="nav-icon">📊</span>
-      <span>Dashboard</span>
+      <span>{{ t('dashboard') }}</span>
     </button>
     <button class="nav-item" [ngClass]="{'active': activeTab === 'teams'}" (click)="switchTab('teams')">
       <span class="nav-icon">🛡️</span>
-      <span>Teams</span>
+      <span>{{ t('teams') }}</span>
     </button>
     <button class="nav-item" [ngClass]="{'active': activeTab === 'players'}" (click)="switchTab('players')">
       <span class="nav-icon">🏃</span>
-      <span>Players</span>
+      <span>{{ t('players') }}</span>
     </button>
     <button class="nav-item" [ngClass]="{'active': activeTab === 'tournaments'}" (click)="switchTab('tournaments')">
       <span class="nav-icon">🏆</span>
-      <span>Tourneys</span>
+      <span>{{ t('tournaments') }}</span>
     </button>
   </nav>
 

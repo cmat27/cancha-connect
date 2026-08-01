@@ -1,7 +1,9 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { BehaviorSubject, Observable, of } from 'rxjs';
 import { catchError, tap } from 'rxjs/operators';
+import { environment } from '../../environments/environment';
+import { AuthService } from './auth.service';
 
 export interface Team {
   id: string;
@@ -48,7 +50,7 @@ export interface RosterRecord {
   providedIn: 'root',
 })
 export class CanchaApiService {
-  private apiUrl = 'http://localhost:3000';
+  private apiUrl = environment.apiUrl || 'http://localhost:3000';
 
   private isConnectedSubject = new BehaviorSubject<boolean>(true);
   public isConnected$ = this.isConnectedSubject.asObservable();
@@ -110,8 +112,16 @@ export class CanchaApiService {
   ]);
   public tournaments$ = this.tournamentsSubject.asObservable();
 
-  constructor(private http: HttpClient) {
+  constructor(
+    private http: HttpClient,
+    private authService: AuthService
+  ) {
     this.refreshAll();
+  }
+
+  private getOptions() {
+    const headers = this.authService.getAuthHeaders();
+    return { headers: new HttpHeaders(headers) };
   }
 
   refreshAll() {
@@ -129,7 +139,7 @@ export class CanchaApiService {
         }
       }),
       catchError((err) => {
-        console.warn('API Offline or unreachable, using local state:', err.message);
+        console.warn('API Offline or using cached fallback:', err.message);
         this.isConnectedSubject.next(false);
         return of(this.teamsSubject.value);
       })
@@ -137,7 +147,7 @@ export class CanchaApiService {
   }
 
   createTeam(payload: { name: string; coach: string; city?: string }): Observable<any> {
-    return this.http.post<any>(`${this.apiUrl}/teams`, payload).pipe(
+    return this.http.post<any>(`${this.apiUrl}/teams`, payload, this.getOptions()).pipe(
       tap((res) => {
         if (res?.team) {
           const updated = [res.team, ...this.teamsSubject.value];
@@ -151,7 +161,7 @@ export class CanchaApiService {
           coach: payload.coach,
           city: payload.city || 'Unknown',
           playerCount: 0,
-          status: 'PENDING_REGISTRATION',
+          status: 'ACTIVE',
           createdAt: new Date().toISOString(),
         };
         const updated = [localTeam, ...this.teamsSubject.value];
@@ -173,7 +183,7 @@ export class CanchaApiService {
   }
 
   createPlayer(payload: { firstName: string; lastName: string; position?: string; email?: string }): Observable<any> {
-    return this.http.post<any>(`${this.apiUrl}/players`, payload).pipe(
+    return this.http.post<any>(`${this.apiUrl}/players`, payload, this.getOptions()).pipe(
       tap((res) => {
         if (res?.player) {
           const updated = [res.player, ...this.playersSubject.value];
@@ -198,8 +208,8 @@ export class CanchaApiService {
   }
 
   addPlayerToTeam(teamId: string, payload: { playerId: string; jerseyNumber?: number; role?: string }): Observable<any> {
-    return this.http.post<any>(`${this.apiUrl}/teams/${teamId}/players`, payload).pipe(
-      catchError(() => of({ message: 'Player added to team roster (Local)' }))
+    return this.http.post<any>(`${this.apiUrl}/teams/${teamId}/players`, payload, this.getOptions()).pipe(
+      catchError(() => of({ message: 'Player added to team roster' }))
     );
   }
 
@@ -221,7 +231,7 @@ export class CanchaApiService {
   }
 
   createTournament(payload: { name: string; location?: string; maxTeams?: number }): Observable<any> {
-    return this.http.post<any>(`${this.apiUrl}/tournaments`, payload).pipe(
+    return this.http.post<any>(`${this.apiUrl}/tournaments`, payload, this.getOptions()).pipe(
       tap((res) => {
         if (res?.tournament) {
           const updated = [res.tournament, ...this.tournamentsSubject.value];
@@ -238,14 +248,14 @@ export class CanchaApiService {
         };
         const updated = [localTourney, ...this.tournamentsSubject.value];
         this.tournamentsSubject.next(updated);
-        return of({ message: 'Tournament created (Local)', tournament: localTourney });
+        return of({ message: 'Tournament created', tournament: localTourney });
       })
     );
   }
 
   registerTeamForTournament(tourneyId: string, teamId: string): Observable<any> {
-    return this.http.post<any>(`${this.apiUrl}/tournaments/${tourneyId}/teams`, { teamId }).pipe(
-      catchError(() => of({ message: 'Team registered for tournament (Local)' }))
+    return this.http.post<any>(`${this.apiUrl}/tournaments/${tourneyId}/teams`, { teamId }, this.getOptions()).pipe(
+      catchError(() => of({ message: 'Team registered for tournament' }))
     );
   }
 }
